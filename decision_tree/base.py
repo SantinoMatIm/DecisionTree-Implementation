@@ -1,6 +1,8 @@
 """Base class for decision trees with a scikit-learn like API."""
 from abc import ABC, abstractmethod
 
+import numpy as np
+
 
 class BaseDecisionTree(ABC):
     """Skeleton shared by every tree variant (classification, regression, ...).
@@ -81,7 +83,24 @@ class BaseDecisionTree(ABC):
         Returns:
             BaseDecisionTree: ``self`` (the fitted estimator).
         """
-        raise NotImplementedError("TODO: implement fit")
+        if self.max_depth is not None and (
+            not isinstance(self.max_depth, (int, np.integer)) or self.max_depth < 0
+        ):
+            raise ValueError("max_depth must be None or an int >= 0")
+        if self.min_samples_split < 2:
+            raise ValueError("min_samples_split must be >= 2")
+        if self.criterion is None:
+            raise ValueError("criterion must be set")
+
+        X = np.asarray(X)
+        y = np.asarray(y)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        if len(X) != len(y):
+            raise ValueError("X and y must have the same number of samples")
+
+        self.root = self._build_tree(X, y, depth=0)
+        return self
 
     def predict(self, X):
         """Predict a target for each row of ``X``.
@@ -98,7 +117,23 @@ class BaseDecisionTree(ABC):
         Returns:
             array, shape (n_samples,): Predicted target for every sample.
         """
-        raise NotImplementedError("TODO: implement predict")
+        if self.root is None:
+            raise ValueError("Model has not been fitted yet")
+
+        X = np.asarray(X)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+
+        preds = []
+        for x in X:
+            node = self.root
+            while not node.is_leaf:
+                if x[node.feature_index] <= node.threshold:
+                    node = node.left
+                else:
+                    node = node.right
+            preds.append(node.value)
+        return np.asarray(preds)
 
     def eval(self, X, y):
         """Score the model on ``(X, y)``.
@@ -114,7 +149,9 @@ class BaseDecisionTree(ABC):
             float: Metric value (accuracy for classification, R^2 for
             regression; higher is better).
         """
-        raise NotImplementedError("TODO: implement eval")
+        y = np.asarray(y)
+        y_pred = self.predict(X)
+        return self._score(y, y_pred)
 
     @abstractmethod
     def _build_tree(self, X, y, depth):
